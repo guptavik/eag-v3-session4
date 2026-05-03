@@ -40,11 +40,21 @@ async function runAgent(userQuery, callbacks = {}) {
     { role: "user", content: userQuery }
   ];
 
+  // Detect user TZ once per run and pass to the LLM each turn so the
+  // final brief renders meeting times in the user's local zone with
+  // the correct abbreviation (e.g. "2:00 PM CST"), not UTC.
+  let userTimeZone = null;
+  try {
+    userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    // Intl is universally available in Chrome; the catch is purely defensive.
+  }
+
   let stepNumber = 0;
 
   try {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-      const response = await callLLM(conversationHistory, TOOLS);
+      const response = await callLLM(conversationHistory, TOOLS, { userTimeZone });
 
       // Surface any text content the model produced this turn.
       const textBlocks = response.content.filter(b => b.type === "text");

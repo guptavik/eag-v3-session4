@@ -134,6 +134,12 @@
     reasoningSection.classList.remove("hidden");
 
     try {
+      // Lazy-load the MCP tool registry on first run so the popup opens
+      // cleanly even when the MCP server is down — the user sees the
+      // failure inline with their query rather than at popup open.
+      if (TOOLS.length === 0) {
+        await fetchToolDefinitions();
+      }
       await runAgent(query, {
         onStep: handleStep,
         onAssistantText: handleAssistantText,

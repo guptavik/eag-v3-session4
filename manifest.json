@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "description": "Agentic AI assistant that prepares you for upcoming meetings.",
   "permissions": ["storage"],
-  "host_permissions": ["https://generativelanguage.googleapis.com/*"],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*",
+    "http://localhost:3737/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Meeting Intelligence Agent"

@@ -77,11 +77,19 @@ async function setApiKey(key) {
   await chrome.storage.local.set({ geminiApiKey: key });
 }
 
-async function callLLM(messages, tools, apiKey) {
+async function callLLM(messages, tools, opts = {}) {
+  const { apiKey, userTimeZone } = opts;
   const key = apiKey || await getApiKey();
 
+  const systemText = userTimeZone
+    ? `${SYSTEM_PROMPT}
+
+## User context
+The user's local timezone is **${userTimeZone}**. Tool results contain ISO timestamps with their original UTC offset (e.g. "2026-05-03T14:00:00-05:00") and may include a per-meeting \`timeZone\` field. When you write the final brief, convert all meeting times to the user's local timezone and include the timezone abbreviation, e.g. "Mon, May 5, 2:00 PM CST". Do the conversion in your response — do not ask a tool to do it.`
+    : SYSTEM_PROMPT;
+
   const body = {
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    systemInstruction: { parts: [{ text: systemText }] },
     contents: convertMessagesToContents(messages),
     tools: convertToolsToFunctionDeclarations(tools),
     generationConfig: {
@@ -182,9 +190,42 @@ function convertToolsToFunctionDeclarations(tools) {
     functionDeclarations: tools.map(t => ({
       name: t.name,
       description: t.description,
-      parameters: t.input_schema
+      parameters: sanitizeSchemaForGemini(t.input_schema)
     }))
   }];
+}
+
+// Gemini's function-declaration parameters accept a subset of JSON Schema
+// (OpenAPI 3.0). The MCP server auto-generates strict JSON Schema via
+// zod-to-json-schema, which adds:
+//   - $schema and additionalProperties → Gemini rejects with a 400
+//   - "type": ["string", "null"] (JSON-Schema-style nullable) → Gemini
+//     wants "type": "string", "nullable": true instead
+// Translate at this boundary so the rest of the codebase (and the MCP
+// protocol) keep using compliant schemas; only Gemini pays the cost.
+function sanitizeSchemaForGemini(schema) {
+  if (Array.isArray(schema)) {
+    return schema.map(sanitizeSchemaForGemini);
+  }
+  if (schema && typeof schema === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(schema)) {
+      if (k === "$schema" || k === "additionalProperties") continue;
+
+      // Convert JSON-Schema nullable shorthand to OpenAPI nullable.
+      if (k === "type" && Array.isArray(v)) {
+        const nonNull = v.filter(t => t !== "null");
+        const hasNull = v.includes("null");
+        out.type = nonNull.length === 1 ? nonNull[0] : nonNull;
+        if (hasNull) out.nullable = true;
+        continue;
+      }
+
+      out[k] = sanitizeSchemaForGemini(v);
+    }
+    return out;
+  }
+  return schema;
 }
 
 // Convert Gemini's response to the Anthropic shape agent.js expects:
