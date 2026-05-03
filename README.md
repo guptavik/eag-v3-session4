@@ -125,11 +125,11 @@ Five tools, exposed by the MCP server via JSON Schema. The extension fetches the
 
 | Name | Backend | Notes |
 |---|---|---|
-| `getUpcomingMeetings` | **Google Calendar** | reads `primary` calendar, recurrences expanded, cancelled events dropped, user themselves removed from attendees, original `dateTime` offset preserved + `timeZone` field exposed |
+| `getUpcomingMeetings` | **Google Calendar** | reads `primary` calendar, recurrences expanded, cancelled events dropped, user themselves removed from attendees, original `dateTime` offset preserved + `timeZone` field exposed. Supports `endOfToday: true` to bound the fetch to the end of the current calendar day in the user's timezone (prevents tomorrow's meetings from appearing in "today" queries) |
 | `searchGmail` | **Gmail** | accepts native Gmail query syntax; returns subject / from / date / snippet for up to 20 hits |
 | `searchWebInfo` | **Gemini → SerpAPI** | tiered (see below) |
 | `analyzeAttendeeBackground` | **SerpAPI + Gemini** | tiered; **0 API calls** for `OWN_COMPANY_DOMAIN` attendees |
-| `calculateMeetingStats` | real computation | accepts `hoursAhead` (preferred — fetches its own meetings via Calendar) or an explicit `meetings` array; returns counts, hours-per-day, busiest day, per-day load classification, per-day meeting list |
+| `calculateMeetingStats` | real computation | accepts `hoursAhead` (preferred — fetches its own meetings via Calendar) or an explicit `meetings` array; returns counts, hours-per-day, busiest day, per-day load classification, per-day meeting list. All-day and multi-day events (≥ 24 h) are excluded from hour totals so they don't inflate the load numbers |
 
 ### SerpAPI / Gemini tiering
 
@@ -169,7 +169,7 @@ loop (max 10 iterations):
 - **Cap of 10 iterations** prevents runaway loops.
 - **Multiple `tool_use` blocks** in one assistant turn execute **sequentially** so the reasoning-chain UI orders them deterministically.
 - **Tool failures** retry once silently; persistent failures surface as `is_error: true` tool results so the model can adapt.
-- **User timezone** is detected once per run via `Intl.DateTimeFormat()` and threaded into the system prompt — the brief renders meeting times in the user's local zone with timezone abbreviation.
+- **User timezone** is detected once per run via `Intl.DateTimeFormat()` and threaded into both the system prompt (brief renders meeting times in the user's local zone with abbreviation, e.g. `2:00 PM CST`) and every MCP tool call (so `calculateMeetingStats` attributes meetings to the correct local day, not the server's timezone).
 - **Conversation history** is popup-scoped — closing the popup clears it.
 
 ## System prompt
@@ -179,6 +179,8 @@ The system prompt (`api.js`):
 - Names the 5 tools with a one-line purpose each.
 - Encourages **parallel tool calls** to fit within the iteration cap.
 - Tells the model to **prefer `hoursAhead` over a `meetings` array** for `calculateMeetingStats` — passing a long array as a function-call argument can blow the output token budget.
+- Tells the model to **use `endOfToday: true`** for "today" queries so the calendar fetch stops at local midnight instead of now + 24 h.
+- Instructs the model to include a **per-day breakdown** (meeting count + hours per day) in all meeting-load/stats responses, alongside the overall summary.
 - Specifies the markdown structure of the final brief: hero meta line, Attendees, Company Context, Related Emails, Talking Points, Prep Checklist.
 - Instructs the model to use a separate `# Title` heading per meeting in multi-meeting briefs (the UI groups everything under one `#` into a collapsible card).
 - Per-call: appends the user's local timezone with explicit guidance to render meeting times in that zone (e.g. `2:00 PM CST`).
