@@ -30,6 +30,7 @@ Operating rules:
 - For "prepare me" requests, a good flow is: (1) fetch meetings, (2) in parallel, profile each external attendee AND search the web for their company AND search email for related threads, (3) write the final brief. Try to keep this under 4 tool-calling turns.
 - If a tool returns no results or fails, adapt: try a different query, skip that step, or note the gap. Do not fabricate data.
 - Don't research attendees who aren't on the meeting the user cares about. Don't research internal colleagues (your own company) the same way you'd research external ones.
+- For meeting-load / schedule-analysis queries (e.g. "what's my load this week?", "busiest day"), call calculateMeetingStats with \`hoursAhead\` directly (24 = today, 168 = week, 720 = month) — do NOT first call getUpcomingMeetings and pass the resulting array. The tool fetches its own meetings, which avoids re-serializing a long array through the model and triggering output-token limits.
 
 Final response format:
 When you're done gathering context, write the meeting brief directly in your final message as markdown with this structure:
@@ -57,7 +58,7 @@ Keep the brief tight. Only include sections where you actually have content. Cit
 
 If briefing on multiple meetings (e.g. "show me everything today"), write a one-line intro, then repeat the structure above for each meeting — each one MUST start with its own \`# <Meeting Title>\` heading (single hash). Do not number the meeting titles. The UI groups everything under one \`#\` heading into a single collapsible card per meeting.`;
 
-const MAX_OUTPUT_TOKENS = 4096;
+const MAX_OUTPUT_TOKENS = 8192;
 
 async function getApiKey() {
   if (typeof chrome === "undefined" || !chrome.storage) {

@@ -74,23 +74,29 @@ export function createServer() {
     {
       title: "Calculate meeting statistics",
       description:
-        "Computes statistics over a list of meeting objects (total count, total hours, busiest day, distribution). " +
-        "Use this when the user asks about meeting load, busiest day, or schedule analysis. " +
-        "Pass meetings exactly as returned by getUpcomingMeetings.",
+        "Computes statistics over a meeting set (total count, total hours, busiest day, distribution). " +
+        "PREFERRED USAGE for 'meeting load' / schedule-analysis queries: pass only `hoursAhead` " +
+        "(e.g. 24 for today, 168 for a week, 720 for a month) and the tool fetches the calendar " +
+        "itself — no need to first call getUpcomingMeetings and re-pass the meetings array. " +
+        "ALTERNATIVE: pass an explicit `meetings` array if you want stats over a curated subset.",
       inputSchema: {
+        hoursAhead: z.number().optional().describe(
+          "Time window to fetch meetings for, in hours. Used when `meetings` is not provided. " +
+          "Defaults: today=24, week=168, month=720, otherwise 168."
+        ),
+        timeframe: z.enum(["today", "week", "month"]).optional()
+          .describe("Human-readable label; also picks the default hoursAhead when neither is set."),
         meetings: z.array(z.object({
           startTime: z.string().describe("ISO timestamp with offset, e.g. 2026-05-03T14:00:00-05:00"),
           endTime:   z.string().describe("ISO timestamp with offset"),
           id:        z.string().optional(),
           title:     z.string().optional(),
           location:  z.string().nullable().optional()
-        })).describe(
-          "Array of meeting objects. Pass meetings exactly as returned by " +
-          "getUpcomingMeetings — only startTime and endTime are required, the " +
-          "other fields enrich the per-day breakdown when present."
-        ),
-        timeframe: z.enum(["today", "week", "month"]).optional()
-          .describe("Optional human-readable label for the report.")
+        })).optional().describe(
+          "Optional explicit meeting set. Only use this when stats over a curated subset are needed; " +
+          "for whole-week/month queries pass hoursAhead instead so the array doesn't have to be " +
+          "re-serialized through the LLM."
+        )
       }
     },
     async (args) => textResult(await h.calculateMeetingStats(args))

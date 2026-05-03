@@ -21,6 +21,11 @@ import { withCache } from "./cache.js";
 const CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"];
 const GMAIL_SCOPES    = ["https://www.googleapis.com/auth/gmail.readonly"];
 
+// Default lookahead per timeframe label, used by calculateMeetingStats
+// when the agent passes only `timeframe` (no explicit hoursAhead, no
+// meetings array).
+const TIMEFRAME_HOURS = { today: 24, week: 168, month: 720 };
+
 // Phrases that indicate the user wants fresh, post-cutoff information.
 // When the query matches, we skip Gemini (knowledge-cutoff Jan 2026)
 // and go straight to SerpAPI.
@@ -357,9 +362,20 @@ function capitalize(s) {
   return s.replace(/\b\w/g, c => c.toUpperCase());
 }
 
-export function calculateMeetingStats({ meetings, timeframe }) {
+export async function calculateMeetingStats({ meetings, hoursAhead, timeframe }) {
+  // Two input modes:
+  //   (a) meetings supplied → compute over that exact set
+  //   (b) meetings omitted  → fetch from Calendar using hoursAhead
+  //                            (or a sensible default derived from timeframe)
+  // Mode (b) is the preferred path for "what's my meeting load this week?"
+  // — it skips having to round-trip the meetings array through Gemini,
+  // which can blow the output token budget for large weeks and trigger
+  // MALFORMED_FUNCTION_CALL.
   if (!Array.isArray(meetings)) {
-    throw new Error("calculateMeetingStats requires 'meetings' to be an array.");
+    const hours = typeof hoursAhead === "number" && hoursAhead > 0
+      ? hoursAhead
+      : (TIMEFRAME_HOURS[timeframe] ?? 168);
+    meetings = await getUpcomingMeetings({ hoursAhead: hours });
   }
 
   const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
