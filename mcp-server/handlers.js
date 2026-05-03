@@ -49,12 +49,31 @@ function isOwnAttendee(email) {
 
 // ---------- Tool handlers ----------
 
-export async function getUpcomingMeetings({ hoursAhead = 24 } = {}) {
+// Returns a Date representing the end of the current calendar day in the
+// given IANA timezone. Works by computing how many seconds remain until
+// local midnight and adding that to the current UTC time.
+function endOfDayInTZ(now, tz) {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour: "numeric", minute: "2-digit", second: "2-digit",
+    hour12: false
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+  const h = +parts.hour || 0;
+  const m = +parts.minute || 0;
+  const s = +parts.second || 0;
+  const secsToMidnight = 24 * 3600 - (h * 3600 + m * 60 + s);
+  return new Date(now.getTime() + secsToMidnight * 1000);
+}
+
+export async function getUpcomingMeetings({ hoursAhead = 24, endOfToday = false, userTimeZone } = {}) {
   const auth = await getAuthorizedClient(CALENDAR_SCOPES);
   const calendar = google.calendar({ version: "v3", auth });
 
   const now    = new Date();
-  const cutoff = new Date(now.getTime() + hoursAhead * 3600 * 1000);
+  const cutoff = endOfToday && userTimeZone
+    ? endOfDayInTZ(now, userTimeZone)
+    : new Date(now.getTime() + hoursAhead * 3600 * 1000);
 
   const res = await calendar.events.list({
     calendarId: "primary",

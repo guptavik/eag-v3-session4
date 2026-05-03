@@ -19,7 +19,14 @@ export function createServer() {
         "Fetches the user's upcoming meetings from their calendar within a time window. " +
         "Use this first when the user asks about meetings, schedule, or wants to prepare for upcoming events.",
       inputSchema: {
-        hoursAhead: z.number().optional().describe("How many hours ahead to look. Default 24.")
+        hoursAhead: z.number().optional().describe("How many hours ahead to look. Default 24."),
+        endOfToday: z.boolean().optional().describe(
+          "When true, fetch only meetings through the end of today in the user's local timezone. " +
+          "Use this instead of hoursAhead when the user asks about 'today'."
+        ),
+        userTimeZone: z.string().optional().describe(
+          "IANA timezone name (e.g. 'America/Chicago'). Auto-injected by the MCP client — do not set this yourself."
+        )
       }
     },
     async (args) => textResult(await h.getUpcomingMeetings(args))
