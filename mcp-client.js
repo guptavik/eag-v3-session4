@@ -100,11 +100,26 @@ async function mcpListTools() {
 // Call a tool and return its JSON payload (parsed). MCP tools return an
 // array of content blocks; our server always emits a single text block
 // containing the JSON-stringified result, so we unwrap that here.
+//
+// We auto-inject the browser-detected user timezone into every tool
+// call's arguments. Tools that care (calculateMeetingStats) read it to
+// compute day-of-week in the user's local zone instead of the server's;
+// tools that don't care have Zod silently strip the extra field. This
+// keeps the agent from having to remember to forward the TZ each call.
 async function mcpCallTool(name, args) {
   await ensureInitialized();
+
+  const finalArgs = { ...(args || {}) };
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz) finalArgs.userTimeZone = tz;  // overrides anything the agent guessed
+  } catch {
+    // Intl is universally available in Chrome; defensive fallback only.
+  }
+
   const result = await mcpRequest("tools/call", {
     name,
-    arguments: args || {}
+    arguments: finalArgs
   });
 
   if (result.isError) {

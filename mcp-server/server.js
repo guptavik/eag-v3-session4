@@ -96,6 +96,10 @@ export function createServer() {
           "Optional explicit meeting set. Only use this when stats over a curated subset are needed; " +
           "for whole-week/month queries pass hoursAhead instead so the array doesn't have to be " +
           "re-serialized through the LLM."
+        ),
+        userTimeZone: z.string().optional().describe(
+          "IANA timezone name (e.g. 'America/Chicago') used to compute day-of-week. " +
+          "Auto-injected by the MCP client from the user's browser — do not set this yourself."
         )
       }
     },

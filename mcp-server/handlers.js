@@ -362,7 +362,7 @@ function capitalize(s) {
   return s.replace(/\b\w/g, c => c.toUpperCase());
 }
 
-export async function calculateMeetingStats({ meetings, hoursAhead, timeframe }) {
+export async function calculateMeetingStats({ meetings, hoursAhead, timeframe, userTimeZone }) {
   // Two input modes:
   //   (a) meetings supplied → compute over that exact set
   //   (b) meetings omitted  → fetch from Calendar using hoursAhead
@@ -380,6 +380,17 @@ export async function calculateMeetingStats({ meetings, hoursAhead, timeframe })
 
   const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
+  // Compute day-of-week in the user's local TZ via Intl. Without this,
+  // start.getDay() returns the day in the server's TZ, which can attribute
+  // a Friday-evening-CST meeting to Saturday-UTC and skew the per-day
+  // breakdown. userTimeZone is auto-injected by mcp-client.js; if it's
+  // missing for any reason, we fall back to server-local (still better
+  // than failing).
+  const dayFormatter = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    timeZone: userTimeZone || undefined
+  });
+
   const distribution = {};
   const hoursByDay = {};
   const meetingsByDay = {};
@@ -389,15 +400,32 @@ export async function calculateMeetingStats({ meetings, hoursAhead, timeframe })
     meetingsByDay[d] = [];
   }
 
+  // Multi-day events (e.g. 3-day off-sites, multi-day all-day blocks)
+  // distort meeting-load math when attributed to a single day at full
+  // duration. We exclude anything that spans more than one calendar
+  // day; single-day events including all-day (24h) ones still count.
+  const MULTI_DAY_THRESHOLD_MS = 24 * 3600 * 1000;
+
   let totalMs = 0;
+  let included = 0;
+  let excludedMultiDay = 0;
+
   for (const m of meetings) {
     const start = new Date(m.startTime);
     const end   = new Date(m.endTime);
     const durMs = end - start;
     if (!Number.isFinite(durMs) || durMs <= 0) continue;
 
+    if (durMs >= MULTI_DAY_THRESHOLD_MS) {
+      excludedMultiDay++;
+      continue;
+    }
+
+    const day = dayFormatter.format(start);   // "Monday", "Tuesday", etc.
+    if (!days.includes(day)) continue;        // defensive: unexpected locale output
+
     totalMs += durMs;
-    const day = days[start.getDay()];
+    included++;
     distribution[day]++;
     hoursByDay[day] += durMs / 3600000;
     meetingsByDay[day].push({
@@ -425,13 +453,19 @@ export async function calculateMeetingStats({ meetings, hoursAhead, timeframe })
     else               loadByDay[d] = "packed";
   }
 
-  if (meetings.length === 0) {
+  // Surface the TZ used for day-of-week so the agent (and the brief)
+  // can label the report unambiguously.
+  const reportTimeZone = userTimeZone || dayFormatter.resolvedOptions().timeZone;
+
+  if (included === 0) {
     return {
       timeframe: timeframe || "n/a",
+      timeZone: reportTimeZone,
       totalMeetings: 0,
       totalHours: 0,
       averageDurationHours: 0,
       busiestDay: null,
+      excludedMultiDay,
       meetingDistribution: distribution,
       hoursByDay,
       loadByDay,
@@ -440,15 +474,17 @@ export async function calculateMeetingStats({ meetings, hoursAhead, timeframe })
   }
 
   const totalHours = +(totalMs / 3600000).toFixed(2);
-  const averageDurationHours = +(totalHours / meetings.length).toFixed(2);
+  const averageDurationHours = +(totalHours / included).toFixed(2);
   const busiestDay = Object.entries(distribution).sort((a, b) => b[1] - a[1])[0][0];
 
   return {
     timeframe: timeframe || "n/a",
-    totalMeetings: meetings.length,
+    timeZone: reportTimeZone,
+    totalMeetings: included,
     totalHours,
     averageDurationHours,
     busiestDay,
+    excludedMultiDay,
     meetingDistribution: distribution,
     hoursByDay,
     loadByDay,
